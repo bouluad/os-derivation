@@ -1,0 +1,135 @@
+name: "Promote Azure Image"
+
+description: >
+  Promote an Azure managed image from a CI subscription to a Team subscription by snapshotting,
+  granting access, creating managed disk and image, then cleanup.
+
+inputs:
+  ci_client_id:
+    description: 'Service Principal Client ID for CI subscription'
+    required: true
+  ci_client_secret:
+    description: 'Service Principal Client Secret for CI subscription'
+    required: true
+  ci_tenant_id:
+    description: 'Tenant ID for CI subscription'
+    required: true
+  ci_subscription_id:
+    description: 'Subscription ID for CI subscription'
+    required: true
+  ci_resource_group:
+    description: 'Resource Group for CI subscription'
+    required: true
+  ci_image_name:
+    description: 'Image name in CI subscription'
+    required: true
+
+  team_client_id:
+    description: 'Service Principal Client ID for Team subscription'
+    required: true
+  team_client_secret:
+    description: 'Service Principal Client Secret for Team subscription'
+    required: true
+  team_tenant_id:
+    description: 'Tenant ID for Team subscription'
+    required: true
+  team_subscription_id:
+    description: 'Subscription ID for Team subscription'
+    required: true
+  team_resource_group:
+    description: 'Resource Group for Team subscription'
+    required: true
+  team_image_name:
+    description: 'Image name to create in Team subscription'
+    required: true
+
+  location:
+    description: 'Azure location (region) to use'
+    required: false
+    default: 'westeurope'
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Login to CI subscription
+      shell: bash
+      run: |
+        az login --service-principal -u "${{ inputs.ci_client_id }}" -p "${{ inputs.ci_client_secret }}" --tenant "${{ inputs.ci_tenant_id }}" > /dev/null
+        az account set --subscription "${{ inputs.ci_subscription_id }}"
+      
+    - name: Get CI image ID
+      id: get_image_id
+      shell: bash
+      run: |
+        IMAGE_ID=$(az image show --name "${{ inputs.ci_image_name }}" --resource-group "${{ inputs.ci_resource_group }}" --query "id" -o tsv)
+        if [ -z "$IMAGE_ID" ]; then
+          echo "Image not found"
+          exit 1
+        fi
+        echo "image_id=$IMAGE_ID" >> $GITHUB_OUTPUT
+
+    - name: Create snapshot from CI image
+      id: create_snapshot
+      shell: bash
+      run: |
+        SNAPSHOT_NAME="${{ inputs.ci_image_name }}-snapshot-$(date +%s)"
+        az snapshot create --resource-group "${{ inputs.ci_resource_group }}" --name "$SNAPSHOT_NAME" --source "${{ steps.get_image_id.outputs.image_id }}" --location "${{ inputs.location }}"
+        echo "snapshot_name=$SNAPSHOT_NAME" >> $GITHUB_OUTPUT
+
+    - name: Grant snapshot read access (SAS token)
+      id: grant_access
+      shell: bash
+      run: |
+        SAS_URI=$(az snapshot grant-access --resource-group "${{ inputs.ci_resource_group }}" --name "${{ steps.create_snapshot.outputs.snapshot_name }}" --duration-in-seconds 3600 --query "accessSas" -o tsv)
+        if [ -z "$SAS_URI" ]; then
+          echo "Failed to get SAS URI"
+          exit 1
+        fi
+        echo "sas_uri=$SAS_URI" >> $GITHUB_OUTPUT
+
+    - name: Logout from CI subscription
+      shell: bash
+      run: |
+        az logout
+
+    - name: Login to Team subscription
+      shell: bash
+      run: |
+        az login --service-principal -u "${{ inputs.team_client_id }}" -p "${{ inputs.team_client_secret }}" --tenant "${{ inputs.team_tenant_id }}" > /dev/null
+        az account set --subscription "${{ inputs.team_subscription_id }}"
+
+    - name: Create managed disk from snapshot SAS URI
+      id: create_disk
+      shell: bash
+      run: |
+        DISK_NAME="${{ inputs.team_image_name }}-disk-$(date +%s)"
+        az disk create --resource-group "${{ inputs.team_resource_group }}" --name "$DISK_NAME" --source "${{ steps.grant_access.outputs.sas_uri }}" --location "${{ inputs.location }}"
+        echo "disk_name=$DISK_NAME" >> $GITHUB_OUTPUT
+
+    - name: Create managed image from disk
+      shell: bash
+      run: |
+        az image create --resource-group "${{ inputs.team_resource_group }}" --name "${{ inputs.team_image_name }}" --source "${{ steps.create_disk.outputs.disk_name }}" --location "${{ inputs.location }}"
+
+    - name: Logout from Team subscription
+      shell: bash
+      run: |
+        az logout
+
+    - name: Cleanup - Revoke access and delete snapshot in CI subscription
+      shell: bash
+      run: |
+        az login --service-principal -u "${{ inputs.ci_client_id }}" -p "${{ inputs.ci_client_secret }}" --tenant "${{ inputs.ci_tenant_id }}" > /dev/null
+        az account set --subscription "${{ inputs.ci_subscription_id }}"
+        az snapshot revoke-access --resource-group "${{ inputs.ci_resource_group }}" --name "${{ steps.create_snapshot.outputs.snapshot_name }}" || true
+        az snapshot delete --resource-group "${{ inputs.ci_resource_group }}" --name "${{ steps.create_snapshot.outputs.snapshot_name }}" || true
+        az logout
+
+    - name: Cleanup - Delete managed disk in Team subscription
+      shell: bash
+      run: |
+        az login --service-principal -u "${{ inputs.team_client_id }}" -p "${{ inputs.team_client_secret }}" --tenant "${{ inputs.team_tenant_id }}" > /dev/null
+        az account set --subscription "${{ inputs.team_subscription_id }}"
+        az disk delete --resource-group "${{ inputs.team_resource_group }}" --name "${{ steps.create_disk.outputs.disk_name }}" --yes || true
+        az logout
