@@ -1,0 +1,35 @@
+name: Promote Image (via reusable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_image_name:
+        required: true
+        description: "Image name in CI subscription"
+      team_image_name:
+        required: true
+        description: "Image name to create in Team subscription"
+      location:
+        required: false
+        default: "westeurope"
+        description: "Azure region"
+
+jobs:
+  promote:
+    uses: your-org/ci-infra/.github/workflows/promote-image.yml@main
+    with:
+      ci_image_name: ${{ github.event.inputs.ci_image_name }}
+      team_image_name: ${{ github.event.inputs.team_image_name }}
+      location: ${{ github.event.inputs.location }}
+    secrets:
+      CI_CLIENT_ID: ${{ secrets.CI_CLIENT_ID }}
+      CI_CLIENT_SECRET: ${{ secrets.CI_CLIENT_SECRET }}
+      CI_TENANT_ID: ${{ secrets.CI_TENANT_ID }}
+      CI_SUBSCRIPTION_ID: ${{ secrets.CI_SUBSCRIPTION_ID }}
+      CI_RESOURCE_GROUP: ${{ secrets.CI_RESOURCE_GROUP }}
+
+      TEAM_CLIENT_ID: ${{ secrets.TEAM_CLIENT_ID }}
+      TEAM_CLIENT_SECRET: ${{ secrets.TEAM_CLIENT_SECRET }}
+      TEAM_TENANT_ID: ${{ secrets.TEAM_TENANT_ID }}
+      TEAM_SUBSCRIPTION_ID: ${{ secrets.TEAM_SUBSCRIPTION_ID }}
+      TEAM_RESOURCE_GROUP: ${{ secrets.TEAM_RESOURCE_GROUP }}
