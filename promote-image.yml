@@ -1,0 +1,52 @@
+name: Reusable - Promote Azure Image
+
+on:
+  workflow_call:
+    inputs:
+      ci_image_name:
+        required: true
+        type: string
+      team_image_name:
+        required: true
+        type: string
+      location:
+        required: false
+        type: string
+        default: "westeurope"
+    secrets:
+      CI_CLIENT_ID:
+        required: true
+      CI_CLIENT_SECRET:
+        required: true
+      CI_TENANT_ID:
+        required: true
+      CI_SUBSCRIPTION_ID:
+        required: true
+      CI_RESOURCE_GROUP:
+        required: true
+      TEAM_CLIENT_ID:
+        required: true
+      TEAM_CLIENT_SECRET:
+        required: true
+      TEAM_TENANT_ID:
+        required: true
+      TEAM_SUBSCRIPTION_ID:
+        required: true
+      TEAM_RESOURCE_GROUP:
+        required: true
+
+jobs:
+  promote-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🔧 Run image promotion script
+        run: |
+          chmod +x ./scripts/promote_image.sh
+          ./scripts/promote_image.sh \
+            "${{ secrets.CI_CLIENT_ID }}" "${{ secrets.CI_CLIENT_SECRET }}" "${{ secrets.CI_TENANT_ID }}" "${{ secrets.CI_SUBSCRIPTION_ID }}" "${{ secrets.CI_RESOURCE_GROUP }}" "${{ inputs.ci_image_name }}" \
+            "${{ secrets.TEAM_CLIENT_ID }}" "${{ secrets.TEAM_CLIENT_SECRET }}" "${{ secrets.TEAM_TENANT_ID }}" "${{ secrets.TEAM_SUBSCRIPTION_ID }}" "${{ secrets.TEAM_RESOURCE_GROUP }}" "${{ inputs.team_image_name }}" \
+            "${{ inputs.location }}"
