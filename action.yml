@@ -1,0 +1,28 @@
+name: Promote Azure Image
+description: Promote an Azure managed image from CI subscription to team subscription via snapshot and SAS
+inputs:
+  ci_image_name:
+    required: true
+    description: "Image name in CI subscription"
+  team_image_name:
+    required: true
+    description: "Target image name in team subscription"
+  location:
+    required: false
+    default: "westeurope"
+    description: "Azure region"
+
+runs:
+  using: "composite"
+  steps:
+    - name: 🧾 Make script executable
+      shell: bash
+      run: chmod +x ${{ github.action_path }}/promote_image.sh
+
+    - name: 🚀 Promote image
+      shell: bash
+      run: |
+        ${{ github.action_path }}/promote_image.sh \
+          "${{ secrets.CI_CLIENT_ID }}" "${{ secrets.CI_CLIENT_SECRET }}" "${{ secrets.CI_TENANT_ID }}" "${{ secrets.CI_SUBSCRIPTION_ID }}" "${{ secrets.CI_RESOURCE_GROUP }}" "${{ inputs.ci_image_name }}" \
+          "${{ secrets.TEAM_CLIENT_ID }}" "${{ secrets.TEAM_CLIENT_SECRET }}" "${{ secrets.TEAM_TENANT_ID }}" "${{ secrets.TEAM_SUBSCRIPTION_ID }}" "${{ secrets.TEAM_RESOURCE_GROUP }}" "${{ inputs.team_image_name }}" \
+          "${{ inputs.location }}"
